@@ -45,6 +45,10 @@ const esc = (v: unknown) =>
 const brl = (v: unknown) =>
   'R$ ' + Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+/** Percentual pt-BR (`18,05%`); '-' se ausente. */
+const pct = (v: unknown) =>
+  v == null || v === '' ? '-' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'
+
 function fmtDoc(d: unknown): string {
   const s = String(d ?? '')
   if (s.length === 14) return s.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
@@ -156,7 +160,27 @@ export async function gerarDanfseHtml(xmlNfse: string, opcoes: OpcoesDanfse = {}
   const vals = dps.valores ?? {}
   const trib = vals.trib ?? {}
   const pisCofins = trib.tribFed?.piscofins
-  const vt = trib.totTrib?.vTotTrib ?? {}
+  const totTrib = trib.totTrib ?? {}
+  const vt = totTrib.vTotTrib ?? {}
+  const pt = totTrib.pTotTrib ?? {}
+  const totaisAprox =
+    totTrib.pTotTribSN != null
+      ? `Alíquota do Simples Nacional: ${pct(totTrib.pTotTribSN)}`
+      : totTrib.pTotTrib
+        ? `Federais: ${pct(pt.pTotTribFed)} ; Estaduais: ${pct(pt.pTotTribEst)} ; Municipais: ${pct(pt.pTotTribMun)}`
+        : totTrib.indTotTrib != null
+          ? 'Não informados'
+          : `Federais: ${brl(vt.vTotTribFed)} ; Estaduais: ${brl(vt.vTotTribEst)} ; Municipais: ${brl(vt.vTotTribMun)}`
+  // IBS/CBS: classificação vem da DPS; base, alíquotas e valores são calculados pela Sefin (infNFSe/IBSCBS).
+  const ibsDps = dps.IBSCBS
+  const ibsTrib = ibsDps?.valores?.trib ?? {}
+  const ibs = inf.IBSCBS ?? {}
+  const ibsVal = ibs.valores ?? {}
+  const ibsTot = ibs.totCIBS ?? {}
+  const vIbs = ibsTot.gIBS?.vIBSTot
+  const vCbs = ibsTot.gCBS?.vCBS
+  const temIbsCbs = vIbs != null || vCbs != null
+  const vIbsCbs = temIbsCbs ? Number(vIbs ?? 0) + Number(vCbs ?? 0) : null
   const chave = String(inf['@_Id'] ?? '').replace(/^NFS/, '')
   const vServ = vals.vServPrest?.vServ
   const vLiq = inf.valores?.vLiq ?? vServ
@@ -181,6 +205,11 @@ export async function gerarDanfseHtml(xmlNfse: string, opcoes: OpcoesDanfse = {}
   const cofins = pisCofins?.vCofins != null ? brl(pisCofins.vCofins) : '-'
   const descRet = pisCofins ? (String(pisCofins.tpRetPisCofins ?? '0') === '0' ? 'PIS/COFINS/CSLL Não Retidos' : 'PIS/COFINS/CSLL Retidos') : '-'
   const tpAmb = String(dps.tpAmb ?? '1')
+  const cLocIbs = String(ibs.cLocalidadeIncid ?? '')
+  const indOpLocal = ibsDps
+    ? [ibsDps.cIndOp ?? '-', cLocIbs || '-', ibs.xLocalidadeIncid ?? '-', UF_POR_CODIGO[cLocIbs.slice(0, 2)] ?? '-'].join(' / ')
+    : '-'
+  const fmtVal = (v: unknown) => (v == null ? '-' : brl(v))
 
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><style>${CSS}</style></head><body><div class="page">
   <div class="topo">
@@ -213,14 +242,14 @@ export async function gerarDanfseHtml(xmlNfse: string, opcoes: OpcoesDanfse = {}
   ${row(c('BC ISSQN', '-'), c('Alíquota Aplicada', '-'), c('Retenção do ISSQN', String(trib.tribMun?.tpRetISSQN ?? '1') === '1' ? 'Não Retido' : 'Retido'), c('ISSQN Apurado', '-'))}
   ${row(h('TRIBUTAÇÃO FEDERAL (EXCETO CBS)'), c('IRRF', '-'), c('Contribuição Previdenciária - Retida', '-'), c('Contribuições Sociais - Retidas', '-'))}
   ${row(c('PIS - Débito Apuração Própria', pis), c('COFINS - Débito Apuração Própria', cofins), c('Descrição Contrib. Sociais - Retidas', descRet, 2))}
-  ${row(h('TRIBUTAÇÃO IBS / CBS'), c('CST / cClassTrib', '-'), c('Indicador de Operação / Código IBGE Incidência / Município / Sigla UF', '-', 2))}
-  ${row(c('Exclusões e Reduções da Base de Cálculo', brl(0)), c('Base de Cálculo Após Exclusões e Reduções', '-'), c('Red. Alíquota IBS / Red. Alíquota CBS', '-'), c('Alíquota - IBS UF / IBS Mun', '-'))}
-  ${row(c('Alíq. Efetiva Municipal - IBS', '-'), c('Valor Apurado Municipal - IBS', '-'), c('Alíq. Efetiva Estadual - IBS', '-'), c('Valor Apurado Estadual - IBS', '-'))}
-  ${row(c('Valor Total Apurado - IBS', '-'), c('Alíquota - CBS', '-'), c('Alíquota Efetiva - CBS', '-'), c('Valor Total Apurado - CBS', '-'))}
+  ${row(h('TRIBUTAÇÃO IBS / CBS'), c('CST / cClassTrib', ibsDps ? `${ibsTrib.CST ?? '-'} / ${ibsTrib.cClassTrib ?? '-'}` : '-'), c('Indicador de Operação / Código IBGE Incidência / Município / Sigla UF', indOpLocal, 2))}
+  ${row(c('Exclusões e Reduções da Base de Cálculo', brl(ibsVal.vCalcAjusteBCIBSCBS ?? ibsVal.vCalcAjusteBCLocImoveis ?? 0)), c('Base de Cálculo Após Exclusões e Reduções', fmtVal(ibsVal.vBC)), c('Red. Alíquota IBS / Red. Alíquota CBS', ibsVal.uf || ibsVal.fed ? `${pct(ibsVal.uf?.pRedAliqUF ?? 0)} / ${pct(ibsVal.fed?.pRedAliqCBS ?? 0)}` : '-'), c('Alíquota - IBS UF / IBS Mun', ibsVal.uf || ibsVal.mun ? `${pct(ibsVal.uf?.pIBSUF)} / ${pct(ibsVal.mun?.pIBSMun)}` : '-'))}
+  ${row(c('Alíq. Efetiva Municipal - IBS', pct(ibsVal.mun?.pAliqEfetMun)), c('Valor Apurado Municipal - IBS', fmtVal(ibsTot.gIBS?.gIBSMunTot?.vIBSMun)), c('Alíq. Efetiva Estadual - IBS', pct(ibsVal.uf?.pAliqEfetUF)), c('Valor Apurado Estadual - IBS', fmtVal(ibsTot.gIBS?.gIBSUFTot?.vIBSUF)))}
+  ${row(c('Valor Total Apurado - IBS', fmtVal(vIbs)), c('Alíquota - CBS', pct(ibsVal.fed?.pCBS)), c('Alíquota Efetiva - CBS', pct(ibsVal.fed?.pAliqEfetCBS)), c('Valor Total Apurado - CBS', fmtVal(vCbs)))}
   ${row(h('VALOR TOTAL DA NFS-E'), c('Valor da Operação / Serviço', brl(vServ)), c('Desconto Incondicionado', '-'), c('Desconto Condicionado', '-'))}
-  ${row(c('Total das Retenções (ISSQN / Federais)', '-'), c('Valor Líquido da NFS-e', brl(vLiq)), c('Total do IBS/CBS', '-'), c('Valor Líquido da NFS-e + IBS/CBS', brl(vLiq), 1, 'cinza'))}
+  ${row(c('Total das Retenções (ISSQN / Federais)', '-'), c('Valor Líquido da NFS-e', brl(vLiq)), c('Total do IBS/CBS', fmtVal(vIbsCbs)), c('Valor Líquido da NFS-e + IBS/CBS', brl(ibsTot.vTotNF ?? (Number(vLiq ?? 0) + (vIbsCbs ?? 0))), 1, 'cinza'))}
   ${row(h('INFORMAÇÕES COMPLEMENTARES'), '<div class="c s3"></div>')}
-  <div class="info">Totais Aproximados dos Tributos cfe. Lei nº 12.741/2012: Federais: ${brl(vt.vTotTribFed)} ; Estaduais: ${brl(vt.vTotTribEst)} ; Municipais: ${brl(vt.vTotTribMun)}</div>
+  <div class="info">Totais Aproximados dos Tributos cfe. Lei nº 12.741/2012: ${esc(totaisAprox)}</div>
   <div class="rodape">${row(c('Data Cientificação', '-'), c('Identificação e Assinatura', '-'), c('Nº NFS-e / Chave NFS-e', chave, 2))}</div>
 </div></body></html>`
 

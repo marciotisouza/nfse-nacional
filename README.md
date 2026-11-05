@@ -48,6 +48,27 @@ await nfse.cancelar(r.chaveAcesso!, 1, 'Erro na emissao da nota fiscal de servic
 
 Exemplo completo: [`examples/emitir.ts`](examples/emitir.ts).
 
+### Tributos aproximados e IBS/CBS
+
+`valores.totTrib` aceita uma das formas do XSD (`totTrib` é uma *choice*):
+
+| Entrada | XML gerado |
+|---------|------------|
+| `{ federal, estadual, municipal }` (padrão, valores em R$) | `<vTotTrib>` |
+| `{ percentual: { federal, estadual, municipal } }` | `<pTotTrib>` |
+| `{ simplesNacional: 18.05 }` (alíquota do Simples, %) | `<pTotTribSN>` |
+| `{ indicador: 0 }` | `<indTotTrib>` |
+
+Grupo IBS/CBS da Reforma Tributária (opcional em 2026; ausente = grupo omitido):
+
+```ts
+ibsCbs: { cst: '000', cClassTrib: '000001', cIndOp: '030101' }   // indDest padrão 0 (destinatário = tomador)
+```
+
+A DPS só informa a classificação (`indFinal`, `cIndOp`, `indDest`/`dest`, `CST`, `cClassTrib`). Base de cálculo,
+alíquotas e valores de IBS/CBS são calculados pela Sefin e voltam em `infNFSe/IBSCBS` — o DANFSe local exibe esses
+valores quando presentes.
+
 ## API do cliente
 
 | Método | O que faz | Endpoint da Sefin/ADN |

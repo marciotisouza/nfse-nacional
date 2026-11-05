@@ -13,7 +13,7 @@ export {
   hojeBrasilia,
   latin1,
 } from './dps.js'
-export type { DadosDps, Endereco, MotivoCancelamento } from './dps.js'
+export type { DadosDps, Endereco, MotivoCancelamento, TotTrib, IbsCbs } from './dps.js'
 
 // Chamadas HTTP (baixo nível)
 export {

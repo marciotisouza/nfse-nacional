@@ -1,6 +1,6 @@
 {
   "name": "nfse-nacional",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Cliente Node.js para a NFS-e Nacional (Sefin Nacional / ADN): emissão de DPS, recuperação idempotente, consulta, cancelamento e DANFSe (PDF) local com assinatura digital por certificado A1.",
   "type": "module",
   "main": "./dist/index.js",

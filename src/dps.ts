@@ -129,9 +129,51 @@ export interface DadosDps {
     tpRetISSQN?: 1 | 2 | 3
     /** PIS/COFINS. Padrão: CST 00, valores 0, não retidos. `null` omite o grupo. */
     pisCofins?: { cst: string; vPis?: number; vCofins?: number; tpRet?: 0 | 1 | 2 } | null
-    /** Valores aproximados dos tributos (Lei 12.741). Padrão: todos 0. */
-    totTrib?: { federal?: number; estadual?: number; municipal?: number }
+    /** Valores aproximados dos tributos (Lei 12.741). Padrão: valores federal/estadual/municipal 0. */
+    totTrib?: TotTrib
   }
+
+  /**
+   * Grupo IBS/CBS da Reforma Tributária (opcional em 2026). Ausente/`null` = grupo omitido.
+   * A DPS só informa a classificação; base, alíquotas e valores são calculados pela Sefin
+   * e voltam no XML da NFS-e (`infNFSe/IBSCBS`).
+   */
+  ibsCbs?: IbsCbs | null
+}
+
+/**
+ * Valor aproximado dos tributos (`totTrib`, choice do XSD):
+ * - `{ federal, estadual, municipal }` → `vTotTrib` (valores em R$);
+ * - `{ percentual: { federal, estadual, municipal } }` → `pTotTrib` (%);
+ * - `{ simplesNacional }` → `pTotTribSN` (alíquota do Simples Nacional, %; ex.: 18.05);
+ * - `{ indicador: 0 }` → `indTotTrib` (não informar o valor aproximado).
+ */
+export type TotTrib =
+  | { federal?: number; estadual?: number; municipal?: number }
+  | { percentual: { federal?: number; estadual?: number; municipal?: number } }
+  | { simplesNacional: number }
+  | { indicador: 0 }
+
+export interface IbsCbs {
+  /** CST do IBS/CBS (3 dígitos, ex.: '000' = tributação integral). */
+  cst: string
+  /** Código de classificação tributária (6 dígitos, ex.: '000001'). */
+  cClassTrib: string
+  /** Código indicador da operação (6 dígitos, anexo VII, ex.: '030101'). */
+  cIndOp?: string | null
+  /** Uso ou consumo pessoal (art. 57): 0 = não, 1 = sim. Omitido se ausente. */
+  indFinal?: 0 | 1 | null
+  /** 0 = destinatário é o próprio tomador (padrão); 1 = outro destinatário (informe `dest`). */
+  indDest?: 0 | 1
+  /** Destinatário, só quando `indDest` = 1. */
+  dest?: {
+    cnpj?: string | null
+    cpf?: string | null
+    nome: string
+    endereco?: Partial<Endereco> | null
+    fone?: string | null
+    email?: string | null
+  } | null
 }
 
 function montarEndereco(e: Partial<Endereco> | null | undefined): string {
@@ -146,6 +188,60 @@ function montarEndereco(e: Partial<Endereco> | null | undefined): string {
     (e.complemento?.trim() ? `<xCpl>${linha(e.complemento, 156)}</xCpl>` : '') +
     `<xBairro>${linha(e.bairro, 60)}</xBairro>` +
     '</end>'
+  )
+}
+
+function montarTotTrib(tt: TotTrib | undefined): string {
+  const t = (tt ?? {}) as Record<string, any>
+  if (t.simplesNacional != null) return `<totTrib><pTotTribSN>${dec(Number(t.simplesNacional))}</pTotTribSN></totTrib>`
+  if (t.indicador != null) return `<totTrib><indTotTrib>${t.indicador}</indTotTrib></totTrib>`
+  if (t.percentual) {
+    const p = t.percentual
+    return (
+      '<totTrib><pTotTrib>' +
+      `<pTotTribFed>${p.federal ? dec(p.federal) : 0}</pTotTribFed>` +
+      `<pTotTribEst>${p.estadual ? dec(p.estadual) : 0}</pTotTribEst>` +
+      `<pTotTribMun>${p.municipal ? dec(p.municipal) : 0}</pTotTribMun>` +
+      '</pTotTrib></totTrib>'
+    )
+  }
+  return (
+    '<totTrib><vTotTrib>' +
+    `<vTotTribFed>${t.federal ? dec(t.federal) : 0}</vTotTribFed>` +
+    `<vTotTribEst>${t.estadual ? dec(t.estadual) : 0}</vTotTribEst>` +
+    `<vTotTribMun>${t.municipal ? dec(t.municipal) : 0}</vTotTribMun>` +
+    '</vTotTrib></totTrib>'
+  )
+}
+
+function montarIbsCbs(g: IbsCbs | null | undefined): string {
+  if (!g) return ''
+  const indDest = g.indDest ?? 0
+  let dest = ''
+  if (indDest === 1) {
+    if (!g.dest) throw new Error('[dps] ibsCbs.indDest = 1 exige ibsCbs.dest.')
+    const cnpj = digitos(g.dest.cnpj)
+    const fone = digitos(g.dest.fone)
+    dest =
+      '<dest>' +
+      (cnpj.length === 14 ? `<CNPJ>${cnpj}</CNPJ>` : `<CPF>${digitos(g.dest.cpf)}</CPF>`) +
+      `<xNome>${linha(g.dest.nome, 150)}</xNome>` +
+      montarEndereco(g.dest.endereco) +
+      (fone.length >= 6 && fone.length <= 20 ? `<fone>${fone}</fone>` : '') +
+      (g.dest.email?.trim() ? `<email>${linha(g.dest.email, 80)}</email>` : '') +
+      '</dest>'
+  }
+  return (
+    '<IBSCBS>' +
+    (g.indFinal != null ? `<indFinal>${g.indFinal}</indFinal>` : '') +
+    (g.cIndOp ? `<cIndOp>${digitos(g.cIndOp)}</cIndOp>` : '') +
+    `<indDest>${indDest}</indDest>` +
+    dest +
+    '<valores><trib>' +
+    `<CST>${digitos(g.cst).padStart(3, '0')}</CST>` +
+    `<cClassTrib>${digitos(g.cClassTrib).padStart(6, '0')}</cClassTrib>` +
+    '</trib></valores>' +
+    '</IBSCBS>'
   )
 }
 
@@ -182,7 +278,6 @@ export function montarXmlDps(d: DadosDps): string {
       : `<xDescServ>${descricao}</xDescServ><cNBS>${digitos(s.codNbs)}</cNBS>`
     : `<xDescServ>${descricao}</xDescServ>`
   const pc = v.pisCofins === undefined ? { cst: '00', vPis: 0, vCofins: 0, tpRet: 0 as const } : v.pisCofins
-  const tt = v.totTrib ?? {}
 
   return (
     `<DPS xmlns="${NS}" versao="${VERSAO}">` +
@@ -226,13 +321,10 @@ export function montarXmlDps(d: DadosDps): string {
         `<tpRetPisCofins>${pc.tpRet ?? 0}</tpRetPisCofins>` +
         '</piscofins></tribFed>'
       : '') +
-    '<totTrib><vTotTrib>' +
-    `<vTotTribFed>${tt.federal ? dec(tt.federal) : 0}</vTotTribFed>` +
-    `<vTotTribEst>${tt.estadual ? dec(tt.estadual) : 0}</vTotTribEst>` +
-    `<vTotTribMun>${tt.municipal ? dec(tt.municipal) : 0}</vTotTribMun>` +
-    '</vTotTrib></totTrib>' +
+    montarTotTrib(v.totTrib) +
     '</trib>' +
     '</valores>' +
+    montarIbsCbs(d.ibsCbs) +
     '</infDPS>' +
     '</DPS>'
   )
