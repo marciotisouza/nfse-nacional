@@ -10,6 +10,17 @@ import { extrairPemTls } from './certificate.js'
 
 export type Ambiente = 1 | 2
 
+/**
+ * Instância axios que troca o AxiosError por um Error simples: o original carrega `config.httpsAgent`
+ * com a chave privada do certificado, que vazaria em qualquer log do erro.
+ */
+const http = axios.create()
+http.interceptors.response.use(undefined, (e: any) => {
+  const erro = new Error(`Falha na comunicação com a API nacional: ${e?.message ?? e}`) as Error & { code?: string }
+  if (e?.code) erro.code = e.code
+  return Promise.reject(erro)
+})
+
 export const URLS: Record<Ambiente, { sefin: string; adn: string }> = {
   1: { sefin: 'https://sefin.nfse.gov.br/SefinNacional', adn: 'https://adn.nfse.gov.br' },
   2: {
@@ -64,16 +75,28 @@ export function extrairErros(data: any): ErroNacional[] {
   }))
 }
 
+/**
+ * Decodifica o XML devolvido pela Sefin: Base64 de gzip, Base64 puro, ou Base64 de um texto que é
+ * outro Base64 de gzip (caso do `arquivoXml` do GET de eventos).
+ */
+function decodificarXml(b64: string, profundidade = 0): string {
+  const buf = Buffer.from(b64, 'base64')
+  if (buf[0] === 0x1f && buf[1] === 0x8b) return gunzipSync(buf).toString('utf-8')
+  const texto = buf.toString('utf-8')
+  return profundidade < 2 && texto.startsWith('H4sI') ? decodificarXml(texto, profundidade + 1) : texto
+}
+
 function montarRetorno(resp: AxiosResponse<any>, campoXml: string): RetornoNacional {
   const data = resp.data
-  const b64 = data?.[campoXml]
+  // GET .../eventos devolve { eventos: [{ arquivoXml }] }; o POST devolve eventoXmlGZipB64.
+  const b64 = data?.[campoXml] ?? data?.eventos?.[0]?.arquivoXml
   const ok = resp.status >= 200 && resp.status < 300
   const erros = ok ? [] : extrairErros(data)
   if (!ok && erros.length === 0) erros.push({ codigo: String(resp.status), descricao: `HTTP ${resp.status} da API nacional.` })
   return {
     status: resp.status,
     chaveAcesso: data?.chaveAcesso ?? null,
-    xml: ok && typeof b64 === 'string' ? gunzipB64(b64) : null,
+    xml: ok && typeof b64 === 'string' ? decodificarXml(b64) : null,
     erros,
   }
 }
@@ -90,25 +113,25 @@ function opcoes(c: ConexaoNacional) {
 
 /** POST /nfse — envia a DPS assinada; emissão síncrona (201 com a NFS-e autorizada). */
 export async function enviarDps(c: ConexaoNacional, dpsXmlAssinado: string): Promise<RetornoNacional> {
-  const resp = await axios.post(`${URLS[c.ambiente].sefin}/nfse`, { dpsXmlGZipB64: gzipB64(dpsXmlAssinado) }, opcoes(c))
+  const resp = await http.post(`${URLS[c.ambiente].sefin}/nfse`, { dpsXmlGZipB64: gzipB64(dpsXmlAssinado) }, opcoes(c))
   return montarRetorno(resp, 'nfseXmlGZipB64')
 }
 
 /** GET /nfse/{chave} — XML da NFS-e. */
 export async function consultarNfse(c: ConexaoNacional, chaveAcesso: string): Promise<RetornoNacional> {
-  const resp = await axios.get(`${URLS[c.ambiente].sefin}/nfse/${chaveAcesso}`, opcoes(c))
+  const resp = await http.get(`${URLS[c.ambiente].sefin}/nfse/${chaveAcesso}`, opcoes(c))
   return montarRetorno(resp, 'nfseXmlGZipB64')
 }
 
 /** GET /dps/{id} — chave da NFS-e gerada a partir da DPS (recuperação de reenvio), ou null. */
 export async function consultarChavePorDps(c: ConexaoNacional, idDps: string): Promise<string | null> {
-  const resp = await axios.get(`${URLS[c.ambiente].sefin}/dps/${idDps}`, opcoes(c))
+  const resp = await http.get(`${URLS[c.ambiente].sefin}/dps/${idDps}`, opcoes(c))
   return resp.status === 200 ? (resp.data?.chaveAcesso ?? null) : null
 }
 
 /** POST /nfse/{chave}/eventos — registra evento (ex.: cancelamento e101101). */
 export async function enviarEvento(c: ConexaoNacional, chaveAcesso: string, pedidoXmlAssinado: string): Promise<RetornoNacional> {
-  const resp = await axios.post(
+  const resp = await http.post(
     `${URLS[c.ambiente].sefin}/nfse/${chaveAcesso}/eventos`,
     { pedidoRegistroEventoXmlGZipB64: gzipB64(pedidoXmlAssinado) },
     opcoes(c),
@@ -123,14 +146,14 @@ export async function consultarEvento(
   tipoEvento = '101101',
   sequencial = 1,
 ): Promise<RetornoNacional> {
-  const resp = await axios.get(`${URLS[c.ambiente].sefin}/nfse/${chaveAcesso}/eventos/${tipoEvento}/${sequencial}`, opcoes(c))
+  const resp = await http.get(`${URLS[c.ambiente].sefin}/nfse/${chaveAcesso}/eventos/${tipoEvento}/${sequencial}`, opcoes(c))
   return montarRetorno(resp, 'eventoXmlGZipB64')
 }
 
 /** GET {adn}/danfse/{chave} — PDF oficial do DANFSe. Retorna null se o ADN não entregar PDF (comum). */
 export async function baixarDanfse(c: ConexaoNacional, chaveAcesso: string): Promise<Buffer | null> {
   try {
-    const resp = await axios.get(`${URLS[c.ambiente].adn}/danfse/${chaveAcesso}`, {
+    const resp = await http.get(`${URLS[c.ambiente].adn}/danfse/${chaveAcesso}`, {
       ...opcoes(c),
       timeout: 30_000,
       responseType: 'arraybuffer',
