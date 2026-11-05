@@ -150,6 +150,71 @@ export async function consultarEvento(
   return montarRetorno(resp, 'eventoXmlGZipB64')
 }
 
+export interface DocumentoDfe {
+  nsu: number
+  chaveAcesso: string | null
+  /** Tipo informado pelo ADN: 'NFSE', 'EVENTO', ... */
+  tipoDocumento: string
+  /** XML do documento já descompactado. */
+  xml: string | null
+  dataHoraGeracao: string | null
+}
+
+export interface RetornoDistribuicao {
+  /** false só em falha real; "nenhum documento" (E2220) é sucesso com lista vazia. */
+  sucesso: boolean
+  /** Status HTTP (0 = sem resposta). */
+  status: number
+  /** StatusProcessamento do ADN (DOCUMENTOS_LOCALIZADOS, NENHUM_DOCUMENTO_LOCALIZADO, ...). */
+  statusProcessamento: string | null
+  documentos: DocumentoDfe[]
+  /** Maior NSU recebido (ou o informado, se nada veio) — passe na próxima chamada. */
+  ultimoNsu: number
+  /** true quando o lote veio cheio (50): provavelmente há mais documentos; chame de novo. */
+  haMais: boolean
+  erros: ErroNacional[]
+}
+
+/** Tamanho máximo do lote devolvido pelo ADN. */
+const LOTE_DFE = 50
+
+/**
+ * GET {adn}/contribuintes/DFe/{ultimoNsu}?cnpjConsulta=&lote=true — distribuição de DF-e: NFS-e e
+ * eventos em que o CNPJ (dono do certificado) é parte — prestador, tomador ou intermediário.
+ * Devolve até 50 documentos com NSU > `ultimoNsu`.
+ */
+export async function distribuicaoDfe(c: ConexaoNacional, ultimoNsu: number, cnpjConsulta?: string): Promise<RetornoDistribuicao> {
+  const params: Record<string, string> = { lote: 'true' }
+  if (cnpjConsulta) params.cnpjConsulta = cnpjConsulta.replace(/\D/g, '')
+  const resp = await http.get(`${URLS[c.ambiente].adn}/contribuintes/DFe/${ultimoNsu}`, { ...opcoes(c), params })
+  const data = resp.data
+  const lote: any[] = data?.LoteDFe ?? data?.loteDFe ?? []
+  const documentos: DocumentoDfe[] = lote.map((d: any) => {
+    const b64 = d?.ArquivoXml ?? d?.arquivoXml
+    return {
+      nsu: Number(d?.NSU ?? d?.nsu),
+      chaveAcesso: d?.ChaveAcesso ?? d?.chaveAcesso ?? null,
+      tipoDocumento: d?.TipoDocumento ?? d?.tipoDocumento ?? '',
+      xml: typeof b64 === 'string' ? decodificarXml(b64) : null,
+      dataHoraGeracao: d?.DataHoraGeracao ?? d?.dataHoraGeracao ?? null,
+    }
+  })
+  const statusProcessamento = data?.StatusProcessamento ?? data?.statusProcessamento ?? null
+  const erros = extrairErros(data)
+  const nenhum = statusProcessamento === 'NENHUM_DOCUMENTO_LOCALIZADO' || erros.some((e) => e.codigo === 'E2220')
+  const sucesso = (resp.status >= 200 && resp.status < 300) || nenhum
+  if (!sucesso && erros.length === 0) erros.push({ codigo: String(resp.status), descricao: `HTTP ${resp.status} do ADN.` })
+  return {
+    sucesso,
+    status: resp.status,
+    statusProcessamento,
+    documentos,
+    ultimoNsu: documentos.reduce((m, d) => (d.nsu > m ? d.nsu : m), ultimoNsu),
+    haMais: documentos.length >= LOTE_DFE,
+    erros: sucesso ? [] : erros,
+  }
+}
+
 /** GET {adn}/danfse/{chave} — PDF oficial do DANFSe. Retorna null se o ADN não entregar PDF (comum). */
 export async function baixarDanfse(c: ConexaoNacional, chaveAcesso: string): Promise<Buffer | null> {
   try {

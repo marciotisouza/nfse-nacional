@@ -61,9 +61,10 @@ Exemplo completo: [`examples/emitir.ts`](examples/emitir.ts).
 | `danfse(chave, xml?, opcoes?)` | PDF: oficial do ADN ou gerado localmente | `GET {adn}/danfse/{chave}` |
 | `idDps(serie, nDps)` | Id da DPS | — |
 | `certificado({ diasAviso? })` | Dados e validade do A1, `cnpjConfere` | — |
+| `distribuicaoDfe(ultimoNsu?, cnpj?)` | Até 50 NFS-e/eventos em que o CNPJ é parte (emitidas e recebidas) | `GET {adn}/contribuintes/DFe/{nsu}` |
 
 Baixo nível (exportados): `montarXmlDps`, `montarXmlCancelamento`, `assinarXml`, `enviarDps`,
-`consultarNfse`, `consultarChavePorDps`, `enviarEvento`, `consultarEvento`, `baixarDanfse`,
+`consultarNfse`, `consultarChavePorDps`, `enviarEvento`, `consultarEvento`, `baixarDanfse`, `distribuicaoDfe`,
 `gerarDanfseHtml`, `gerarDanfsePdf`, `extrairPemTls`, `extrairDadosCertificado`, `verificarCertificado`.
 
 ## Certificado (dados e validade)

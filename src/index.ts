@@ -24,11 +24,12 @@ export {
   enviarEvento,
   consultarEvento,
   baixarDanfse,
+  distribuicaoDfe,
   gzipB64,
   gunzipB64,
   extrairErros,
 } from './api.js'
-export type { Ambiente, ConexaoNacional, ErroNacional, RetornoNacional } from './api.js'
+export type { Ambiente, ConexaoNacional, ErroNacional, RetornoNacional, DocumentoDfe, RetornoDistribuicao } from './api.js'
 
 // Impressão (DANFSe)
 export { gerarDanfseHtml, gerarDanfsePdf } from './danfse.js'

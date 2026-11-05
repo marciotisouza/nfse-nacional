@@ -213,6 +213,17 @@ export class NfseNacionalClient {
   }
 
   /**
+   * Distribuição de DF-e pelo ADN: até 50 NFS-e/eventos com NSU > `ultimoNsu` em que o CNPJ do
+   * certificado é parte (prestador, tomador ou intermediário). Guarde `ultimoNsu` do retorno por
+   * CNPJ e chame de novo enquanto `haMais`. Comece com 0 para baixar tudo.
+   *
+   * @param cnpjConsulta  Padrão: `cnpjPrestador` da config.
+   */
+  async distribuicaoDfe(ultimoNsu = 0, cnpjConsulta?: string): Promise<api.RetornoDistribuicao> {
+    return api.distribuicaoDfe(this.conexao, ultimoNsu, cnpjConsulta ?? this.config.cnpjPrestador)
+  }
+
+  /**
    * Dados e validade do certificado A1 configurado, e se o CNPJ dele confere com `cnpjPrestador`.
    * Útil num health-check: `if (info.expirado || info.vencendo || !info.cnpjConfere) avisar()`.
    */
