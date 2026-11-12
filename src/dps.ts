@@ -66,7 +66,8 @@ export interface DadosDps {
   /** 1 = produção, 2 = produção restrita. */
   ambiente: 1 | 2
   /**
-   * Leiaute NT-009: inclui `<finNFSe>0</finNFSe>` e põe `<cNBS>` antes de `<xDescServ>`.
+   * Leiaute NT-009: inclui `<finNFSe>0</finNFSe>` em `infDPS` e põe `<cNBS>` antes de `<xDescServ>`.
+   * No leiaute anterior, `finNFSe` vai dentro de `IBSCBS` (quando há `ibsCbs`) e `CST`/`cClassTrib` em `trib/gIBSCBS`.
    * A produção restrita já exige; a produção (11/2026) ainda rejeita. Padrão: true só se ambiente = 2.
    */
   leiauteNt009?: boolean
@@ -159,9 +160,9 @@ export interface IbsCbs {
   cst: string
   /** Código de classificação tributária (6 dígitos, ex.: '000001'). */
   cClassTrib: string
-  /** Código indicador da operação (6 dígitos, anexo VII, ex.: '030101'). */
+  /** Código indicador da operação (6 dígitos, anexo VII, ex.: '030101'). Obrigatório fora do leiaute NT-009. */
   cIndOp?: string | null
-  /** Uso ou consumo pessoal (art. 57): 0 = não, 1 = sim. Omitido se ausente. */
+  /** Uso ou consumo pessoal (art. 57): 0 = não, 1 = sim. Ausente: omitido no leiaute NT-009, 0 no anterior. */
   indFinal?: 0 | 1 | null
   /** 0 = destinatário é o próprio tomador (padrão); 1 = outro destinatário (informe `dest`). */
   indDest?: 0 | 1
@@ -214,8 +215,18 @@ function montarTotTrib(tt: TotTrib | undefined): string {
   )
 }
 
-function montarIbsCbs(g: IbsCbs | null | undefined): string {
+/**
+ * Grupo IBSCBS. Os dois leiautes diferem:
+ * - NT-009: `finNFSe` fica em `infDPS`; `indFinal`/`cIndOp` opcionais; `trib` = `CST` + `cClassTrib`.
+ * - anterior (produção em 11/2026): `finNFSe` é o 1º filho do grupo, `cIndOp` é obrigatório e
+ *   `CST`/`cClassTrib` vão dentro de `trib/gIBSCBS`. `indFinal` sai sempre (há versão do XSD que o exige).
+ */
+function montarIbsCbs(g: IbsCbs | null | undefined, nt009: boolean): string {
   if (!g) return ''
+  if (!nt009 && !g.cIndOp) throw new Error('[dps] ibsCbs.cIndOp é obrigatório no leiaute anterior à NT-009.')
+  const sitClas =
+    `<CST>${digitos(g.cst).padStart(3, '0')}</CST>` +
+    `<cClassTrib>${digitos(g.cClassTrib).padStart(6, '0')}</cClassTrib>`
   const indDest = g.indDest ?? 0
   let dest = ''
   if (indDest === 1) {
@@ -233,13 +244,17 @@ function montarIbsCbs(g: IbsCbs | null | undefined): string {
   }
   return (
     '<IBSCBS>' +
-    (g.indFinal != null ? `<indFinal>${g.indFinal}</indFinal>` : '') +
+    (nt009 ? '' : '<finNFSe>0</finNFSe>') +
+    (nt009
+      ? g.indFinal != null
+        ? `<indFinal>${g.indFinal}</indFinal>`
+        : ''
+      : `<indFinal>${g.indFinal ?? 0}</indFinal>`) +
     (g.cIndOp ? `<cIndOp>${digitos(g.cIndOp)}</cIndOp>` : '') +
     `<indDest>${indDest}</indDest>` +
     dest +
     '<valores><trib>' +
-    `<CST>${digitos(g.cst).padStart(3, '0')}</CST>` +
-    `<cClassTrib>${digitos(g.cClassTrib).padStart(6, '0')}</cClassTrib>` +
+    (nt009 ? sitClas : `<gIBSCBS>${sitClas}</gIBSCBS>`) +
     '</trib></valores>' +
     '</IBSCBS>'
   )
@@ -324,7 +339,7 @@ export function montarXmlDps(d: DadosDps): string {
     montarTotTrib(v.totTrib) +
     '</trib>' +
     '</valores>' +
-    montarIbsCbs(d.ibsCbs) +
+    montarIbsCbs(d.ibsCbs, nt009) +
     '</infDPS>' +
     '</DPS>'
   )

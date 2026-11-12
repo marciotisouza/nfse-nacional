@@ -69,6 +69,10 @@ A DPS só informa a classificação (`indFinal`, `cIndOp`, `indDest`/`dest`, `CS
 alíquotas e valores de IBS/CBS são calculados pela Sefin e voltam em `infNFSe/IBSCBS` — o DANFSe local exibe esses
 valores quando presentes.
 
+O grupo muda com o leiaute: no NT-009, `finNFSe` fica em `infDPS` e `CST`/`cClassTrib` direto em `trib`; no anterior
+(produção em 11/2026), `<finNFSe>0</finNFSe>` e `<indFinal>` abrem o `IBSCBS`, `cIndOp` é obrigatório e
+`CST`/`cClassTrib` vão em `trib/gIBSCBS`. A lib escolhe por `leiauteNt009`.
+
 ## API do cliente
 
 | Método | O que faz | Endpoint da Sefin/ADN |
